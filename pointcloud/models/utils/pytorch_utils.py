@@ -264,7 +264,7 @@ class FC(nn.Sequential):
         if init is not None:
             init(fc.weight)
         if not bn:
-            nn.init.constant(fc.bias, 0)
+            nn.init.constant_(fc.bias, 0)
 
         if preact:
             if bn:
