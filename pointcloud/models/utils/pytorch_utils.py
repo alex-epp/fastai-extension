@@ -1,5 +1,5 @@
 import torch.nn as nn
-from typing import List, Tuple
+from typing import *
 
 
 class SharedMLP(nn.Sequential):
@@ -32,6 +32,33 @@ class SharedMLP(nn.Sequential):
             )
 
 
+class _BNBase(nn.Sequential):
+
+    def __init__(self, in_size, batch_norm=None, name=""):
+        super().__init__()
+        self.add_module(name + "bn", batch_norm(in_size))
+
+        nn.init.constant_(self[0].weight, 1.0)
+        nn.init.constant_(self[0].bias, 0)
+
+
+class BatchNorm1d(_BNBase):
+
+    def __init__(self, in_size: int, *, name: str = ""):
+        super().__init__(in_size, batch_norm=nn.BatchNorm1d, name=name)
+
+
+class BatchNorm2d(_BNBase):
+
+    def __init__(self, in_size: int, name: str = ""):
+        super().__init__(in_size, batch_norm=nn.BatchNorm2d, name=name)
+
+
+class BatchNorm3d(_BNBase):
+    def __init__(self, in_size: int, name: str = ""):
+        super().__init__(in_size, batch_norm=nn.BatchNorm3d, name=name)
+
+
 class _ConvBase(nn.Sequential):
 
     def __init__(
@@ -41,6 +68,7 @@ class _ConvBase(nn.Sequential):
             kernel_size,
             stride,
             padding,
+            dilation,
             activation,
             bn,
             init,
@@ -61,6 +89,7 @@ class _ConvBase(nn.Sequential):
             kernel_size=kernel_size,
             stride=stride,
             padding=padding,
+            dilation=dilation,
             bias=bias
         )
         init(conv_unit.weight)
@@ -101,28 +130,6 @@ class _ConvBase(nn.Sequential):
                 self.add_module(name + 'in', in_unit)
 
 
-class _BNBase(nn.Sequential):
-
-    def __init__(self, in_size, batch_norm=None, name=""):
-        super().__init__()
-        self.add_module(name + "bn", batch_norm(in_size))
-
-        nn.init.constant_(self[0].weight, 1.0)
-        nn.init.constant_(self[0].bias, 0)
-
-
-class BatchNorm1d(_BNBase):
-
-    def __init__(self, in_size: int, *, name: str = ""):
-        super().__init__(in_size, batch_norm=nn.BatchNorm1d, name=name)
-
-
-class BatchNorm2d(_BNBase):
-
-    def __init__(self, in_size: int, name: str = ""):
-        super().__init__(in_size, batch_norm=nn.BatchNorm2d, name=name)
-
-
 class Conv1d(_ConvBase):
 
     def __init__(
@@ -133,6 +140,7 @@ class Conv1d(_ConvBase):
             kernel_size: int = 1,
             stride: int = 1,
             padding: int = 0,
+            dilation: int = 1,
             activation=nn.ReLU(inplace=True),
             bn: bool = False,
             init=nn.init.kaiming_normal_,
@@ -147,6 +155,7 @@ class Conv1d(_ConvBase):
             kernel_size,
             stride,
             padding,
+            dilation,
             activation,
             bn,
             init,
@@ -170,6 +179,7 @@ class Conv2d(_ConvBase):
             kernel_size: Tuple[int, int] = (1, 1),
             stride: Tuple[int, int] = (1, 1),
             padding: Tuple[int, int] = (0, 0),
+            dilation: Tuple[int, int] = (1, 1),
             activation=nn.ReLU(inplace=True),
             bn: bool = False,
             init=nn.init.kaiming_normal_,
@@ -184,6 +194,7 @@ class Conv2d(_ConvBase):
             kernel_size,
             stride,
             padding,
+            dilation,
             activation,
             bn,
             init,
@@ -194,6 +205,43 @@ class Conv2d(_ConvBase):
             name=name,
             instance_norm=instance_norm,
             instance_norm_func=nn.InstanceNorm2d
+        )
+
+
+class Conv3d(_ConvBase):
+    def __init__(
+        self,
+        in_size: int,
+        out_size: int,
+        kernel_size: Tuple[int, int, int] = (1, 1, 1),
+        stride: Tuple[int, int, int] = (1, 1, 1),
+        padding: Tuple[int, int, int] = (0, 0, 0),
+        dilation: Tuple[int, int, int] = (1, 1, 1),
+        activation: any = nn.ReLU(inplace=True),
+        bn: bool = False,
+        init: Any = nn.init.kaiming_normal_,
+        bias: bool = True,
+        preact: bool = False,
+        name: str = "",
+        instance_norm=False
+    ):
+        super().__init__(
+            in_size,
+            out_size,
+            kernel_size,
+            stride,
+            padding,
+            dilation,
+            activation,
+            bn,
+            init,
+            conv=nn.Conv3d,
+            batch_norm=BatchNorm3d,
+            bias=bias,
+            preact=preact,
+            name=name,
+            instance_norm=instance_norm,
+            instance_norm_func=nn.InstanceNorm3d
         )
 
 
@@ -233,3 +281,184 @@ class FC(nn.Sequential):
 
             if activation is not None:
                 self.add_module(name + 'activation', activation)
+
+
+class Seq(nn.Sequential):
+    def __init__(self, input_channels):
+        super(Seq, self).__init__()
+        self.count = 0
+        self.current_channels = input_channels
+
+    def conv1d(
+        self,
+        out_size,
+        kernel_size=1,
+        stride=1,
+        padding=0,
+        dilation=1,
+        activation=nn.ReLU(inplace=True),
+        bn=False,
+        init=nn.init.kaiming_normal_,
+        bias=True,
+        preact=False,
+        name="",
+        instance_norm=False,
+    ):
+        self.add_module(
+            str(self.count),
+            Conv1d(
+                self.current_channels,
+                out_size,
+                kernel_size=kernel_size,
+                stride=stride,
+                padding=padding,
+                dilation=dilation,
+                activation=activation,
+                bn=bn,
+                init=init,
+                bias=bias,
+                preact=preact,
+                name=name,
+                instance_norm=instance_norm,
+            ),
+        )
+        self.count += 1
+        self.current_channels = out_size
+
+        return self
+
+    def conv2d(
+        self,
+        out_size,
+        kernel_size=(1, 1),
+        stride=(1, 1),
+        padding=(0, 0),
+        dilation=(1, 1),
+        activation=nn.ReLU(inplace=True),
+        bn=False,
+        init=nn.init.kaiming_normal_,
+        bias=True,
+        preact=False,
+        name="",
+        instance_norm=False,
+    ):
+        self.add_module(
+            str(self.count),
+            Conv2d(
+                self.current_channels,
+                out_size,
+                kernel_size=kernel_size,
+                stride=stride,
+                padding=padding,
+                dilation=dilation,
+                activation=activation,
+                bn=bn,
+                init=init,
+                bias=bias,
+                preact=preact,
+                name=name,
+                instance_norm=instance_norm,
+            ),
+        )
+        self.count += 1
+        self.current_channels = out_size
+
+        return self
+
+    def conv3d(
+        self,
+        out_size,
+        kernel_size=(1, 1, 1),
+        stride=(1, 1, 1),
+        padding=(0, 0, 0),
+        dilation=(1, 1, 1),
+        activation=nn.ReLU(inplace=True),
+        bn=False,
+        init=nn.init.kaiming_normal_,
+        bias=True,
+        preact=False,
+        name="",
+        instance_norm=False,
+    ):
+        self.add_module(
+            str(self.count),
+            Conv3d(
+                self.current_channels,
+                out_size,
+                kernel_size=kernel_size,
+                stride=stride,
+                padding=padding,
+                dilation=dilation,
+                activation=activation,
+                bn=bn,
+                init=init,
+                bias=bias,
+                preact=preact,
+                name=name,
+                instance_norm=instance_norm,
+            ),
+        )
+        self.count += 1
+        self.current_channels = out_size
+
+        return self
+
+    def fc(
+        self,
+        out_size,
+        activation=nn.ReLU(inplace=True),
+        bn=False,
+        init=None,
+        preact=False,
+        name="",
+    ):
+        # type: (Seq, int, Any, bool, Any, bool, AnyStr) -> Seq
+
+        self.add_module(
+            str(self.count),
+            FC(
+                self.current_channels,
+                out_size,
+                activation=activation,
+                bn=bn,
+                init=init,
+                preact=preact,
+                name=name,
+            ),
+        )
+        self.count += 1
+        self.current_channels = out_size
+
+        return self
+
+    def dropout(self, p=0.5):
+        # type: (Seq, float) -> Seq
+
+        self.add_module(str(self.count), nn.Dropout(p=0.5))
+        self.count += 1
+
+        return self
+
+    def maxpool2d(
+        self,
+        kernel_size,
+        stride=None,
+        padding=0,
+        dilation=1,
+        return_indices=False,
+        ceil_mode=False,
+    ):
+        self.add_module(
+            str(self.count),
+            nn.MaxPool2d(
+                kernel_size=kernel_size,
+                stride=stride,
+                padding=padding,
+                dilation=dilation,
+                return_indices=return_indices,
+                ceil_mode=ceil_mode,
+            ),
+        )
+        self.count += 1
+
+        return self
