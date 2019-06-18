@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
 
-from pointcloud.models.utils import pytorch_utils as pt_utils
-from pointcloud.models.utils.pointnet2_modules import PointnetSAModuleMSG, PointnetSAModule
+from ..models.utils import pytorch_utils as pt_utils
+from ..models.utils.pointnet2_modules import PointnetSAModuleMSG, PointnetSAModule
 
 
 __all__ = ['Pointnet2MSG']
