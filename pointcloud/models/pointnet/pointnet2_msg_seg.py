@@ -26,7 +26,7 @@ class Pointnet2MSGSeg(nn.Module):
     """
 
     def __init__(self, num_classes, input_channels=6, use_xyz=True):
-        super(Pointnet2MSG, self).__init__()
+        super(Pointnet2MSGSeg, self).__init__()
 
         self.SA_modules = nn.ModuleList()
         c_in = input_channels
