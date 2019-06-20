@@ -2,7 +2,10 @@ import numpy as np
 import contextlib
 import time
 from pyntcloud import PyntCloud
+
 from fastai.vision import *
+
+unet_learner()
 
 from util.timing import process_timer
 

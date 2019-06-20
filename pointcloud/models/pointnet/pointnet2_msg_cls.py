@@ -1,16 +1,16 @@
 import torch
 import torch.nn as nn
 
-from ..models.utils import pytorch_utils as pt_utils
-from ..models.utils.pointnet2_modules import PointnetSAModule
+from .utils import pytorch_utils as pt_utils
+from .utils.pointnet2_modules import PointnetSAModuleMSG, PointnetSAModule
 
 
-__all__ = ['Pointnet2SSG']
+__all__ = ['Pointnet2MSG']
 
 
-class Pointnet2SSG(nn.Module):
+class Pointnet2MSG(nn.Module):
     r"""
-        PointNet2 with single-scale grouping
+        PointNet2 with multi-scale grouping
         Classification network
 
         Parameters
@@ -25,29 +25,39 @@ class Pointnet2SSG(nn.Module):
     """
 
     def __init__(self, num_classes, input_channels=3, use_xyz=True):
-        super(Pointnet2SSG, self).__init__()
+        super(Pointnet2MSG, self).__init__()
 
         self.SA_modules = nn.ModuleList()
         self.SA_modules.append(
-            PointnetSAModule(
+            PointnetSAModuleMSG(
                 npoint=512,
-                radius=0.2,
-                nsample=64,
-                mlp=[input_channels, 64, 64, 128],
+                radii=[0.1, 0.2, 0.4],
+                nsamples=[16, 32, 128],
+                mlps=[
+                    [input_channels, 32, 32, 64],
+                    [input_channels, 64, 64, 128],
+                    [input_channels, 64, 96, 128],
+                ],
                 use_xyz=use_xyz,
             )
         )
+
+        input_channels = 64 + 128 + 128
         self.SA_modules.append(
-            PointnetSAModule(
+            PointnetSAModuleMSG(
                 npoint=128,
-                radius=0.4,
-                nsample=64,
-                mlp=[128, 128, 128, 256],
+                radii=[0.2, 0.4, 0.8],
+                nsamples=[32, 64, 128],
+                mlps=[
+                    [input_channels, 64, 64, 128],
+                    [input_channels, 128, 128, 256],
+                    [input_channels, 128, 128, 256],
+                ],
                 use_xyz=use_xyz,
             )
         )
         self.SA_modules.append(
-            PointnetSAModule(mlp=[256, 256, 512, 1024], use_xyz=use_xyz)
+            PointnetSAModule(mlp=[128 + 256 + 256, 256, 512, 1024], use_xyz=use_xyz)
         )
 
         self.FC_layer = (
@@ -66,7 +76,7 @@ class Pointnet2SSG(nn.Module):
         return xyz, features
 
     def forward(self, pointcloud):
-        # type: (Pointnet2SSG, torch.cuda.FloatTensor) -> pt_utils.Seq
+        # type: (Pointnet2MSG, torch.cuda.FloatTensor) -> pt_utils.Seq
         r"""
             Forward pass of the network
 
