@@ -3,9 +3,10 @@ import contextlib
 import time
 from pyntcloud import PyntCloud
 
-from fastai.vision import *
+from pointcloud import *
 
-unet_learner()
+learner = pcn_learner(None, pointnet2_msg_cls)
+
 
 from util.timing import process_timer
 

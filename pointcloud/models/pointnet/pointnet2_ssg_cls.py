@@ -1,11 +1,12 @@
 import torch
 import torch.nn as nn
+from torch.hub import load_state_dict_from_url
 
 from .utils import pytorch_utils as pt_utils
 from .utils.pointnet2_modules import PointnetSAModule
 
 
-__all__ = ['Pointnet2SSG']
+__all__ = ['Pointnet2SSG', 'pointnet2_ssg_cls']
 
 
 class Pointnet2SSG(nn.Module):
@@ -84,3 +85,12 @@ class Pointnet2SSG(nn.Module):
             xyz, features = module(xyz, features)
 
         return self.FC_layer(features.squeeze(-1))
+
+
+def pointnet2_ssg_cls(pretrained=False, progress=True, **kwargs):
+    model = Pointnet2SSG(**kwargs)
+    if pretrained:
+        state_dict = load_state_dict_from_url('',
+                                              progress=progress)
+        model.load_state_dict(state_dict)
+    return model
