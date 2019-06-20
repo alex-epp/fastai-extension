@@ -25,7 +25,7 @@ class Pointnet2MSGSeg(nn.Module):
             Whether or not to use the xyz position of a point as a feature
     """
 
-    def __init__(self, num_classes, input_channels=6, use_xyz=True):
+    def __init__(self, num_classes=9, input_channels=6, use_xyz=True):
         super(Pointnet2MSGSeg, self).__init__()
 
         self.SA_modules = nn.ModuleList()
@@ -97,7 +97,7 @@ class Pointnet2MSGSeg(nn.Module):
         return xyz, features
 
     def forward(self, pointcloud):
-        # type: (Pointnet2MSG, torch.cuda.FloatTensor) -> pt_utils.Seq
+        # type: (Pointnet2MSGSeg, torch.cuda.FloatTensor) -> pt_utils.Seq
         r"""
             Forward pass of the network
 

@@ -25,7 +25,7 @@ class Pointnet2MSG(nn.Module):
             Whether or not to use the xyz position of a point as a feature
     """
 
-    def __init__(self, num_classes, input_channels=3, use_xyz=True):
+    def __init__(self, num_classes=9, input_channels=3, use_xyz=True):
         super(Pointnet2MSG, self).__init__()
 
         self.SA_modules = nn.ModuleList()
