@@ -1,1 +1,2 @@
-from . import pointnet
+from .pointnet import *
+from .pcn import *

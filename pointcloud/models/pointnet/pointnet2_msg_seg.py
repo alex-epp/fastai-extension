@@ -1,14 +1,15 @@
 import torch
 import torch.nn as nn
+from torch.hub import load_state_dict_from_url
 
 from .utils import pytorch_utils as pt_utils
 from .utils.pointnet2_modules import PointnetFPModule, PointnetSAModuleMSG
 
 
-__all__ = ['Pointnet2MSG']
+__all__ = ['Pointnet2MSGSeg', 'pointnet2_msg_seg']
 
 
-class Pointnet2MSG(nn.Module):
+class Pointnet2MSGSeg(nn.Module):
     r"""
         PointNet2 with multi-scale grouping
         Semantic segmentation network that uses feature propogation layers
@@ -124,41 +125,11 @@ class Pointnet2MSG(nn.Module):
         return self.FC_layer(l_features[0]).transpose(1, 2).contiguous()
 
 
-if __name__ == "__main__":
-    import numpy as np
-    import torch.optim as optim
+def pointnet2_msg_seg(pretrained=False, progress=True, **kwargs):
+    model = Pointnet2MSGSeg(**kwargs)
+    if pretrained:
+        state_dict = load_state_dict_from_url('',
+                                              progress=progress)
+        model.load_state_dict(state_dict)
+    return model
 
-    B = 2
-    N = 32
-    inputs = torch.randn(B, N, 6).cuda()
-    labels = torch.from_numpy(np.random.randint(0, 3, size=B * N)).view(B, N).cuda()
-    model = Pointnet2MSG(3, input_channels=3)
-    model.cuda()
-
-    optimizer = optim.Adam(model.parameters(), lr=1e-2)
-
-    print("Testing with xyz")
-    model_fn = model_fn_decorator(nn.CrossEntropyLoss())
-    for _ in range(5):
-        optimizer.zero_grad()
-        _, loss, _ = model_fn(model, (inputs, labels))
-        loss.backward()
-        print(loss.data[0])
-        optimizer.step()
-
-    # with use_xyz=False
-    inputs = torch.randn(B, N, 6).cuda()
-    labels = torch.from_numpy(np.random.randint(0, 3, size=B * N)).view(B, N).cuda()
-    model = Pointnet2MSG(3, input_channels=3, use_xyz=False)
-    model.cuda()
-
-    optimizer = optim.Adam(model.parameters(), lr=1e-2)
-
-    print("Testing without xyz")
-    model_fn = model_fn_decorator(nn.CrossEntropyLoss())
-    for _ in range(5):
-        optimizer.zero_grad()
-        _, loss, _ = model_fn(model, (inputs, labels))
-        loss.backward()
-        print(loss.data[0])
-        optimizer.step()

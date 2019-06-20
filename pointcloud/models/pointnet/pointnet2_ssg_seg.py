@@ -1,14 +1,15 @@
 import torch
 import torch.nn as nn
+from torch.hub import load_state_dict_from_url
 
 from .utils import pytorch_utils as pt_utils
 from .utils.pointnet2_modules import PointnetSAModule, PointnetFPModule
 
 
-__all__ = ['Pointnet2SSG']
+__all__ = ['Pointnet2SSGSeg', 'pointnet2_ssg_seg']
 
 
-class Pointnet2SSG(nn.Module):
+class Pointnet2SSGSeg(nn.Module):
     r"""
         PointNet2 with single-scale grouping
         Semantic segmentation network that uses feature propogation layers
@@ -25,7 +26,7 @@ class Pointnet2SSG(nn.Module):
     """
 
     def __init__(self, num_classes, input_channels=3, use_xyz=True):
-        super(Pointnet2SSG, self).__init__()
+        super(Pointnet2SSGSeg, self).__init__()
 
         self.SA_modules = nn.ModuleList()
         self.SA_modules.append(
@@ -113,3 +114,12 @@ class Pointnet2SSG(nn.Module):
             )
 
         return self.FC_layer(l_features[0]).transpose(1, 2).contiguous()
+
+
+def pointnet2_ssg_seg(pretrained=False, progress=True, **kwargs):
+    model = Pointnet2SSGSeg(**kwargs)
+    if pretrained:
+        state_dict = load_state_dict_from_url('',
+                                              progress=progress)
+        model.load_state_dict(state_dict)
+    return model
