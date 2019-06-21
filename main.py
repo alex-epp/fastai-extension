@@ -4,10 +4,11 @@ if __name__ == "__main__":
 
     data = (PtCloudList.from_folder('test-data')
             .chunkify(1)
-            .normalize(1)
+            .norm_xyz()
             .random_sample(1024)
             .split_by_rand_pct()
             .label_from_field('x')
             .databunch(bs=3)
-            )
+            )  # type: PtCloudDataBunch
 
+    data.show_batch()
