@@ -8,6 +8,7 @@ from fastai.core import *
 from fastai.data_block import *
 from fastai.layers import *
 from fastai.torch_core import *
+import torch
 
 from .pointcloud import *
 import pyntcloud
@@ -39,7 +40,8 @@ class ptSegmentationList(ItemList):
 
 class PtCloudList(ItemList):
     _bunch = PtCloudDataBunch
-    _label_cls = ptSegmentationList
+    # _label_cls = PtCloudList
+    _label_cls = None
 
     def __init__(self, items: Iterator, features: Union[Iterable, str] = ('x', 'y', 'z'),
                  pt_clouds: List[pyntcloud.PyntCloud] = None, **kwargs):
@@ -49,11 +51,12 @@ class PtCloudList(ItemList):
         self.copy_new.extend(['pt_clouds', 'features'])
 
     def get(self, idx):
-        return self.pt_clouds[idx].points[self.features]
+        return torch.from_numpy(self.pt_clouds[idx].points[self.features].values)
 
     def label_from_field(self, label_field='classification', **kwargs):
-        labels = [p.points[label_field] for p in self.pt_clouds]
-        return self._label_from_list(labels, **kwargs)
+        # labels = [p.points[label_field] for p in self.pt_clouds]
+        # return self._label_from_list(self.items, pt_clouds=self.pt_clouds,  **kwargs)
+        return self._label_from_list(self.items, pt_clouds=self.pt_clouds, features=label_field, **kwargs)
 
     def chunkify(self, chunk_size: Union[int, Iterable] = 1, *, from_item_lists=False):
         if from_item_lists:
@@ -93,7 +96,7 @@ class PtCloudList(ItemList):
                      for file in files]  # type: List[pyntcloud.PyntCloud]
 
         return cls(range_of(pt_clouds), pt_clouds=pt_clouds, **kwargs)
-
+PtCloudList._label_cls = PtCloudList
 
 # class PtCloudList(ItemList):
 #     "`PtCloudList` suitable for point-cloud processing."
