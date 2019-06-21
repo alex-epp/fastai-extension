@@ -15,7 +15,7 @@ import pyntcloud
 __all__ = ['PtCloudDataBunch', 'PtCloudList']
 
 # TODO: set to all file types loadable with the point-cloud library I choose
-ptcloud_extensions = ['.las', '.laz']
+ptcloud_extensions = ['.las', '.laz', '.ply']
 
 
 class PtCloudDataBunch(DataBunch):
@@ -25,46 +25,72 @@ class PtCloudDataBunch(DataBunch):
         return (
             PtCloudList.from_folder(path)
             .split_by_rand_pct()
-            .label_from_ptclouds()
+            .label_from_field()
             .databunch(path=path, **kwargs)
         )
 
 
+class ptSegmentationList(ItemList):
+    pass
+
+
 class PtCloudList(ItemList):
-    # _item_cls = PtCloud
     _bunch = PtCloudDataBunch
+    _label_cls = ptSegmentationList
 
-    def __init__(self, items: Iterator, chunk_size: Union[int, Iterable] = None,
-                 features: Union[Iterable, str] = ('x', 'y', 'z'),
-                 n_points: int = None, **kwargs):
-        pt_clouds = [pyntcloud.PyntCloud.from_file(fn)
-                     for fn in items]  # type: List[pyntcloud.PyntCloud]
-        self.pts = []  # type: List[pyntcloud.PyntCloud]
-        for pt_cloud in pt_clouds:
-            if chunk_size:
-                self.pts.extend(split_ptcloud(pt_cloud, chunk_size))
-            else:
-                self.pts.append(pt_cloud)
-
-        if n_points:
-            self.pts = [p.get_sample('random_points', n=n_points, as_PyntCloud=True)
-                        for p in self.pts]  # type: List[pyntcloud.PyntCloud]
-
+    def __init__(self, items: Iterator, features: Union[Iterable, str] = ('x', 'y', 'z'),
+                 pt_clouds: List[pyntcloud.PyntCloud] = None, **kwargs):
+        super().__init__(items, **kwargs)
+        self.pt_clouds = pt_clouds
         self.features = listify(features)
-
-        super().__init__(range_of(chunks), **kwargs)
+        self.copy_new.extend(['pt_clouds', 'features'])
 
     def get(self, idx):
-        return self.pts[idx].points[[self.features]].values
+        return self.pt_clouds[idx].points[[self.features]]
 
-    def label_from_ptclouds(self, label_field='classification', **kwargs):
-        labels = [p.points[label_field].values for p in self.pts]
+    def label_from_field(self, label_field='classification', **kwargs):
+        labels = [p.points[label_field] for p in self.pt_clouds]
         return self._label_from_list(labels, **kwargs)
 
+    def chunkify(self, chunk_size: Union[int, Iterable] = 1, *, from_item_lists=False):
+        if from_item_lists:
+            raise Exception('Can\'t use chunkify after splitting data.')
+        pts = []
+        for p in self.pt_clouds:
+            pts.extend(ptcloud_split(p, chunk_size))
+
+        self.pt_clouds = pts
+        self.items = np.asarray(range_of(self.pt_clouds))
+        return self
+
+    def random_sample(self, n=1024, *, from_item_lists=False):
+        if from_item_lists:
+            raise Exception('Can\'t use random_sample after splitting data.')
+        self.pt_clouds = [ptcloud_sample(p, n=n) for p in self.pt_clouds]
+        self.items = np.asarray(range_of(self.pt_clouds))
+        return self
+
+    def voxel_sample(self, voxel_size: Union[float, Iterable] = 0.1,
+                     agg='intensity', *, from_item_lists=False):
+        if from_item_lists:
+            raise Exception('Can\'t use voxel_sample after splitting data.')
+        self.pt_clouds = [ptcloud_voxel_sample(p, voxel_size, agg) for p in self.pt_clouds]
+        self.items = np.asarray(range_of(self.pt_clouds))
+        return self
+
     @classmethod
-    def from_folder(cls, path:PathOrStr, extensions:Collection[str]=None, **kwargs):
+    def from_folder(cls, path: PathOrStr, extensions: Collection[str] = None, recurse: bool = True,
+                    include: Optional[Collection[str]] = None, presort: Optional[bool] = False,
+                    **kwargs) -> 'PtCloudList':
         extensions = ifnone(extensions, ptcloud_extensions)
-        return super().from_folder(path=path, extensions=extensions, **kwargs)
+        path = Path(path)
+
+        files = get_files(path, extensions, recurse=recurse, include=include, presort=presort)
+        pt_clouds = [pyntcloud.PyntCloud.from_file(str(file))
+                     for file in files]  # type: List[pyntcloud.PyntCloud]
+
+        return cls(range_of(pt_clouds), pt_clouds=pt_clouds, **kwargs)
+
 
 # class PtCloudList(ItemList):
 #     "`PtCloudList` suitable for point-cloud processing."
