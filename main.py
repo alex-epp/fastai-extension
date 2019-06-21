@@ -2,12 +2,5 @@ if __name__ == "__main__":
     from pointcloud import *
     from fastai.vision import data
 
-    data = (PtCloudList.from_folder('test-data')
-            .chunkify(1)
-            .random_sample(1024)
-            .split_by_rand_pct()
-            .label_from_field('x')
-            .databunch(bs=3)
-            )
-
-    
+    item_list = PtCloudList.from_folder('test-data')
+    print(item_list)

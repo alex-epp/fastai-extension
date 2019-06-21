@@ -46,7 +46,7 @@ class PtCloudList(ItemList):
         self.copy_new.extend(['pt_clouds', 'features'])
 
     def get(self, idx):
-        return self.pt_clouds[idx].points[[self.features]]
+        return self.pt_clouds[idx].points[self.features]
 
     def label_from_field(self, label_field='classification', **kwargs):
         labels = [p.points[label_field] for p in self.pt_clouds]
