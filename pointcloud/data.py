@@ -80,6 +80,14 @@ class PtCloudList(ItemList):
         self.items = np.asarray(range_of(self.pt_clouds))
         return self
 
+    def normalize(self, scale, *, from_item_lists=False):
+        if from_item_lists:
+            raise Exception('Can\'t use normalize after splitting data.')
+        for p in self.pt_clouds:
+            p.points.loc[['x', 'y', 'z']] -= np.mean(p.xyz, axis=0)
+            p.points.loc[['x', 'y', 'z']] /= listify(scale, 3)
+        return self
+
     @classmethod
     def from_folder(cls, path: PathOrStr, extensions: Collection[str] = None, recurse: bool = True,
                     include: Optional[Collection[str]] = None, presort: Optional[bool] = False,
