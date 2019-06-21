@@ -19,6 +19,9 @@ ptcloud_extensions = ['.las', '.laz', '.ply']
 
 
 class PtCloudDataBunch(DataBunch):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
     "DataBunch suitable for point-cloud processing."
     @classmethod
     def from_folder(cls, path: PathOrStr, **kwargs):
