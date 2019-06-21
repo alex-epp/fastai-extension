@@ -35,7 +35,7 @@ class PtCloudList(ItemList):
     _bunch = PtCloudDataBunch
 
     def __init__(self, items: Iterator, chunk_size: Union[int, Iterable] = None,
-                 features: Union[Iterable[str], str] = ('x', 'y', 'z'),
+                 features: Union[Iterable, str] = ('x', 'y', 'z'),
                  n_points: int = None, **kwargs):
         pt_clouds = [pyntcloud.PyntCloud.from_file(fn)
                      for fn in items]  # type: List[pyntcloud.PyntCloud]

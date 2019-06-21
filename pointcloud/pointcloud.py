@@ -2,11 +2,10 @@ from fastai.core import *
 from fastai.torch_core import *
 import pyntcloud
 
-
 __all__ = ['split_ptcloud']
 
 
-def split_ptcloud(pts: pyntcloud.PyntCloud, cell_size: Union[float, Iterable[float]]
+def split_ptcloud(pts: pyntcloud.PyntCloud, cell_size: Union[float, Iterable]
                   ) -> List[pyntcloud.PyntCloud]:
     cell_size = listify(cell_size, 3)
 
