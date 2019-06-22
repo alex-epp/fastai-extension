@@ -54,6 +54,13 @@ class PtCloudList(ItemList):
         # return self._label_from_list(self.items, pt_clouds=self.pt_clouds,  **kwargs)
         return self._label_from_list(self.items, pt_clouds=self.pt_clouds, features=label_field, **kwargs)
 
+    def filter(self, filter_, *, from_item_lists=False):
+        if from_item_lists:
+            raise Exception('Can\'t use filter after splitting data.')
+        self.pt_clouds = list(filter(filter_, self.pt_clouds))
+        self.items = np.asarray(range_of(self.pt_clouds))
+        return self
+
     def chunkify(self, chunk_size: Union[int, Iterable] = 1, *, from_item_lists=False):
         if from_item_lists:
             raise Exception('Can\'t use chunkify after splitting data.')
@@ -102,10 +109,16 @@ class PtCloudList(ItemList):
 
         return cls(range_of(pt_clouds), pt_clouds=pt_clouds, **kwargs)
 
+    def reconstruct(self, t: Tensor):
+        return t.cpu().data.numpy()
+
 
 class ptSegmentationList(PtCloudList):
     def get(self, idx):
         return torch.from_numpy(np.asarray(self.pt_clouds[idx].points[self.features].values, dtype='long'))
+
+    def reconstruct(self, t: Tensor):
+        return t.cpu().data.numpy()
 
 
 PtCloudList._label_cls = ptSegmentationList
