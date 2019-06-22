@@ -2,7 +2,30 @@ from fastai.core import *
 from fastai.torch_core import *
 import pyntcloud
 
-__all__ = ['ptcloud_split', 'ptcloud_sample', 'ptcloud_voxel_sample']
+__all__ = ['PtCloudItem', 'PtCloudSegmentItem', 'ptcloud_split', 'ptcloud_sample',
+           'ptcloud_voxel_sample']
+
+
+class PtCloudItem(ItemBase):
+    @classmethod
+    def from_ptcloud(cls,
+                     ptcloud: pyntcloud.PyntCloud,
+                     features: Union[str, Collection[str]] = ('x', 'y', 'z')):
+        features = listify(features)
+        pts = ptcloud.points[features]
+        return cls(torch.from_numpy(np.asarray(pts, dtype=np.float32)))
+
+
+class PtCloudSegmentItem(ItemBase):
+    @classmethod
+    def from_ptcloud(cls,
+                     ptcloud: pyntcloud.PyntCloud,
+                     label_field: str = 'classification'):
+        labels = ptcloud.points[label_field].values
+        return cls(torch.from_numpy(labels).long())
+
+    def reconstruct(self, t: Tensor):
+        return PtCloudSegmentItem(t)
 
 
 def ptcloud_split(pts: pyntcloud.PyntCloud, cell_size: Union[float, Iterable]

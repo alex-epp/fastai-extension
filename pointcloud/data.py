@@ -1,8 +1,3 @@
-# This file currently assumes a 1:1 relationship between point-cloud files
-# and examples, which would make duplicating some papers needlessly complicated.
-# Perhaps the PtcloudList could take some kind of point-cloud example generator?
-# TODO: implement more flexible file-example relationship
-
 from fastai.basic_data import *
 from fastai.core import *
 from fastai.data_block import *
@@ -13,176 +8,151 @@ import torch
 from .pointcloud import *
 import pyntcloud
 
-__all__ = ['PtCloudDataBunch', 'PtCloudList']
+__all__ = ['PtCloudDataBunch', 'PtCloudSegmentationList']
 
 # TODO: set to all file types loadable with the point-cloud library I choose
 ptcloud_extensions = ['.las', '.laz', '.ply']
 
+TensorPtCloud = Tensor
+
+
+def normalize(x: TensorPtCloud, mean: FloatTensor, std: FloatTensor):
+    return (x - mean[None, None, :]) / std[None, None, :]
+
+
+def _normalize_batch(b: Tuple[Tensor, Tensor], mean: FloatTensor, std: FloatTensor,
+                     do_x: bool = True, do_y: bool = True):
+    x, y = b
+    mean, std = mean.to(x.device), std.to(x.device)
+    if do_x:
+        x = torch.cat((x[..., :3], normalize(x[..., 3:], mean, std)), dim=-1)
+    if do_y and len(y.shape) == 3:
+        y = torch.cat((y[..., :3], normalize(y[..., 3:], mean, std)), dim=-1)
+    return x, y
+
+
+def denormalize(x: TensorPtCloud, mean: FloatTensor, std: FloatTensor, do_x: bool = True):
+    if do_x:
+        x = x.cpu().float()
+        return torch.cat((x[..., :3],
+                          x[..., 3:] * std[None, None, ...] + mean[None, None, ...]))
+    else:
+        return x.cpu()
+
+
+def normalize_funcs(mean: FloatTensor, std: FloatTensor, do_x: bool, do_y: bool):
+    mean, std = tensor(mean), tensor(std)
+    return (partial(_normalize_batch, mean=mean, std=std, do_x=do_x, do_y=do_y),
+            partial(denormalize, mean=mean, std=std, do_x=do_x, do_y=do_y))
+
+
+def feature_view(x: Tensor) -> Tensor:
+    return x.transpose(0, 2).contiguous()[3:, ...].view(x.shape[2]-3, -1)
+
 
 class PtCloudDataBunch(DataBunch):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
     "DataBunch suitable for point-cloud processing."
-    @classmethod
-    def from_folder(cls, path: PathOrStr, **kwargs):
-        return (
-            PtCloudList.from_folder(path)
-            .split_by_rand_pct()
-            .label_from_field()
-            .databunch(path=path, **kwargs)
-        )
+
+    def batch_stats(self,
+                    funcs: Collection[Callable] = None,
+                    ds_type: DatasetType = DatasetType.Train
+                    ):
+        funcs = ifnone(funcs,[torch.mean, torch.std])
+        x = self.one_batch(ds_type=ds_type, denorm=False)[0].cpu()
+        return [func(feature_view(x), 1) for func in funcs]
+
+    def normalize(self,
+                  stats: Collection[Tensor] = None,
+                  do_x: bool = True,
+                  do_y: bool = False
+                  ) -> 'PtCloudDataBunch':
+        if getattr(self, 'norm', False):
+            raise Exception('Can not call normalize twice')
+
+        self.stats = ifnone(stats, self.batch_stats())
+        self.norm, self.denorm = normalize_funcs(*self.stats, do_x=do_x, do_y=do_y)
+        self.add_tfm(self.norm)
+        return self
 
 
 class PtCloudList(ItemList):
+    "ItemList suitable for computer vision."
     _bunch = PtCloudDataBunch
-    # _label_cls = PtCloudList
-    _label_cls = None
 
-    def __init__(self, items: Iterator, features: Union[Iterable, str] = ('x', 'y', 'z'),
-                 pt_clouds: List[pyntcloud.PyntCloud] = None, **kwargs):
-        super().__init__(items, **kwargs)
-        self.pt_clouds = pt_clouds
+    def __init__(self, items: Iterator,
+                 *args,
+                 pt_clouds=None,
+                 features=None,
+                 **kwargs):
+        if pt_clouds is None:
+            pt_clouds = [pyntcloud.PyntCloud.from_file(str(f)) for f in items]
+            items = range_of(pt_clouds)
+
+        super().__init__(items, *args, **kwargs)
+
         self.features = listify(features)
-        self.copy_new.extend(['pt_clouds', 'features'])
+        self.pt_clouds = pt_clouds
+        self.copy_new.extend(['features', 'pt_clouds'])
+        # TODO: ImageList sets 'self.c' here. Why?
 
-    def get(self, idx):
-        return torch.from_numpy(np.asarray(self.pt_clouds[idx].points[self.features].values, dtype='float32'))
-
-    def label_from_field(self, label_field='classification', **kwargs):
-        # labels = [p.points[label_field] for p in self.pt_clouds]
-        # return self._label_from_list(self.items, pt_clouds=self.pt_clouds,  **kwargs)
-        return self._label_from_list(self.items, pt_clouds=self.pt_clouds, features=label_field, **kwargs)
-
-    def filter(self, filter_, *, from_item_lists=False):
-        if from_item_lists:
-            raise Exception('Can\'t use filter after splitting data.')
-        self.pt_clouds = list(filter(filter_, self.pt_clouds))
-        self.items = np.asarray(range_of(self.pt_clouds))
-        return self
-
-    def chunkify(self, chunk_size: Union[int, Iterable] = 1, *, from_item_lists=False):
-        if from_item_lists:
-            raise Exception('Can\'t use chunkify after splitting data.')
-        pts = []
-        for p in self.pt_clouds:
-            pts.extend(ptcloud_split(p, chunk_size))
-
-        self.pt_clouds = pts
-        self.items = np.asarray(range_of(self.pt_clouds))
-        return self
-
-    def random_sample(self, n=1024, *, from_item_lists=False):
-        if from_item_lists:
-            raise Exception('Can\'t use random_sample after splitting data.')
-        self.pt_clouds = [ptcloud_sample(p, n=n) for p in self.pt_clouds]
-        self.items = np.asarray(range_of(self.pt_clouds))
-        return self
-
-    def voxel_sample(self, voxel_size: Union[float, Iterable] = 0.1,
-                     agg='intensity', *, from_item_lists=False):
-        if from_item_lists:
-            raise Exception('Can\'t use voxel_sample after splitting data.')
-        self.pt_clouds = [ptcloud_voxel_sample(p, voxel_size, agg) for p in self.pt_clouds]
-        self.items = np.asarray(range_of(self.pt_clouds))
-        return self
-
-    def norm_xyz(self, scale=None, *, from_item_lists=False):
-        if from_item_lists:
-            raise Exception('Can\'t use normalize after splitting data.')
-        for p in self.pt_clouds:
-            p.points.loc[:, ['x', 'y', 'z']] -= np.mean(p.xyz, axis=0)
-            if scale:
-                p.points.loc[:, ['x', 'y', 'z']] *= listify(scale, 3)
-        return self
+    def get(self, i):
+        i = super().get(i)
+        return PtCloudItem.from_ptcloud(self.pt_clouds[i],
+                                        ['x', 'y', 'z'] + self.features)
 
     @classmethod
-    def from_folder(cls, path: PathOrStr, extensions: Collection[str] = None, recurse: bool = True,
-                    include: Optional[Collection[str]] = None, presort: Optional[bool] = False,
-                    **kwargs) -> 'PtCloudList':
+    def from_folder(cls,
+                    path: PathOrStr = '.',
+                    extensions: Collection[str] = None,
+                    **kwargs
+                    ) -> 'PtCloudList':
         extensions = ifnone(extensions, ptcloud_extensions)
-        path = Path(path)
+        return super().from_folder(path=path, extensions=extensions, **kwargs)
 
-        files = get_files(path, extensions, recurse=recurse, include=include, presort=presort)
-        pt_clouds = [pyntcloud.PyntCloud.from_file(str(file))
-                     for file in files]  # type: List[pyntcloud.PyntCloud]
+    def reconstruct(self, t: Tensor) -> PtCloudItem:
+        return PtCloudItem(t.float())
 
-        return cls(range_of(pt_clouds), pt_clouds=pt_clouds, **kwargs)
+    # TODO: show
+
+
+class PtCloudSegmentationProcessor(PreProcessor):
+    "`PreProcessor` that stores the classes for segmentation."
+    def __init__(self, ds: ItemList): self.classes = ds.classes
+    def process(self, ds: ItemList): ds.classes, ds.c = self.classes, len(self.classes)
+
+
+class PtCloudSegmentationLabelList(PtCloudList):
+    "`ItemList` for point-cloud segmentation masks."
+    _processor = PtCloudSegmentationProcessor
+
+    def __init__(self,
+                 items: Iterator,
+                 classes: Collection = None,
+                 label_field: str = 'classification',
+                 **kwargs
+                 ):
+        super().__init__(items, **kwargs)
+        self.copy_new.extend(['classes', 'label_field'])
+        self.classes, self.label_field = classes, label_field
+        self.loss_func = CrossEntropyFlat(axis=-1)
+
+    def get(self, i):
+        i = super().get(i)
+        print(i)
+        return PtCloudSegmentItem.from_ptcloud(self.pt_clouds[i],
+                                                    self.label_field)
+
+    def analyze_pred(self, pred:Tensor):
+        return pred.argmax(dim=1)[None]
 
     def reconstruct(self, t: Tensor):
-        return t.cpu().data.numpy()
+        return PtCloudSegmentItem(t)
 
 
-class ptSegmentationList(PtCloudList):
-    def get(self, idx):
-        return torch.from_numpy(np.asarray(self.pt_clouds[idx].points[self.features].values, dtype='long'))
+class PtCloudSegmentationList(PtCloudList):
+    "`ItemList suitable for segmentation tasks."
+    _label_cls = PtCloudSegmentationLabelList
 
-    def reconstruct(self, t: Tensor):
-        return t.cpu().data.numpy()
-
-
-PtCloudList._label_cls = ptSegmentationList
-
-# class PtCloudList(ItemList):
-#     "`PtCloudList` suitable for point-cloud processing."
-#     _bunch = PtCloudDataBunch
-#     def __init__(self, *args, after_open:Callable=None, **kwargs):
-#         super().__init__(*args, **kwargs)
-#         self.after_open = after_open
-#         # TODO: add pointcloud file configuration here
-#
-#     def open(self, fn):
-#         "Open point-cloud in `fn`, subclass and overwrite for custom behavior."
-#         return open_ptcloud(fn, after_open=self.after_open)
-#
-#     def get(self, i):
-#         fn = super().get(i)
-#         res = self.open(fn)
-#         # TODO: ImageList stores size here. Find out why.
-#         return res
-#
-#     @classmethod
-#     def from_folder(cls, path:PathOrStr='.', extensions:Collection[str]=None, **kwargs)->'PtCloudList':
-#         extensions = ifnone(extensions, ptcloud_extensions)
-#         return super().from_folder(path=path, extensions=extensions, **kwargs)
-#
-#     @classmethod
-#     def from_df(cls, df:DataFrame, path:PathOrStr, cols:IntsOrStrs=0, folder:PathOrStr=None, suffix:str='', **kwargs)->'PtCloudList':
-#         "Get the filenames in `cols` of `df` with `folder` in front of them, `suffix` at the end."
-#         suffix = suffix or ''
-#         res = super().from_df(df, path=path, cols=cols, **kwargs)
-#         pref = f'{res.path}{os.path.sep}'
-#         if folder is not None: pref += f'{folder}{os.path.sep}'
-#         res.items = np.char.add(np.char.add(pref, res.items.astype(str)), suffix)
-#         return res
-#
-#     @classmethod
-#     def from_csv(cls, path:PathOrStr, csv_name:str, header:str='infer', **kwargs)->'PtCloudList':
-#         "Get the filenames in `path/csv_name` opened with `header`."
-#         path = Path(path)
-#         df = pd.read_csv(path/csv_name, header=header)
-#         return cls.from_df(df, path=path, **kwargs)
-#
-#     def reconstruct(self, t:Tensor): raise NotImplementedError()
-
-# class ptSegmentationProcessor(PreProcessor):
-#     "`PreProcessor` that stores the classes for point-cloud segmentation."
-#     def __init__(self, ds:ItemList): self.classes = ds.classes
-#     def process(self, ds:ItemList):  ds.classes,ds.c = self.classes,len(self.classes)
-#
-# # NOTE: assumes point-cloud is stored as BxFxN
-# class ptSegmentationLabelList(PtCloudList):
-#     "`ItemList` for point-cloud segmentation masks."
-#     _processor=ptSegmentationProcessor
-#     def __init__(self, items:Iterator, classes:Collection=None, **kwargs):
-#         super().__init__(items, **kwargs)
-#         self.copy_new.append('classes')
-#         # TODO: allow other losses, e.g. dice
-#         self.classes,self.loss_func = classes,CrossEntropyFlat(axis=1)
-#
-#     def open(self, fn): return open_ptmask(fn)
-#     def analyze_pred(self, pred, thresh:float=0.5): return pred.argmax(dim=0)[None]
-#     def reconstruct(self, t:Tensor): raise NotImplementedError()
-#
-#
-# # TODO: add regression and point-cloud-to-point-cloud support
+    def label_from_field(self, label_field: str = 'classification', **kwargs):
+        return self._label_from_list(self.items, pt_clouds=self.pt_clouds,
+                                     label_field=label_field, **kwargs)
