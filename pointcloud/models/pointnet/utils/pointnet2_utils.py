@@ -3,9 +3,13 @@ from torch.autograd import Variable
 from torch.autograd import Function
 import torch.nn as nn
 from typing import Tuple
+from warnings import warn
 
-from . import pointnet2_cuda as pointnet2
-
+try:
+    from . import pointnet2_cuda as pointnet2
+except ImportError:
+    warn('Can\'t import pointnet2_cuda. Did you compile the pointnet cuda kernals?')
+    pointnet2_cuda = None
 
 class FurthestPointSampling(Function):
     @staticmethod

@@ -9,5 +9,6 @@ if __name__ == "__main__":
             .split_by_rand_pct()
             .label_from_field('x')
             .databunch(bs=3)
-            )
+            )  # type: PtCloudDataBunch
 
+    data.show_batch()
