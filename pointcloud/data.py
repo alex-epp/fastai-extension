@@ -127,16 +127,9 @@ class PtCloudList(ItemList):
         self.items = np.asarray(range_of(self.pt_clouds))
         return self
 
-    def chunkify(self, chunk_size: Union[int, Iterable] = 1, *, from_item_lists=False):
-        if from_item_lists:
-            raise Exception('Can\'t use chunkify after splitting data.')
-        pts = []
-        for p in self.pt_clouds:
-            pts.extend(ptcloud_split(p, chunk_size))
 
-        self.pt_clouds = pts
-        self.items = np.asarray(range_of(self.pt_clouds))
-        return self
+def feature_view(x: Tensor) -> Tensor:
+    return x.transpose(0, 2).contiguous()[3:, ...].view(x.shape[2]-3, -1)
 
     def voxel_sample(self, voxel_size: Union[float, Iterable] = 0.1,
                      agg='intensity', *, from_item_lists=False):
@@ -146,13 +139,25 @@ class PtCloudList(ItemList):
         self.items = np.asarray(range_of(self.pt_clouds))
         return self
 
-    def norm_xyz(self, scale=None, *, from_item_lists=False):
-        if from_item_lists:
-            raise Exception('Can\'t use normalize after splitting data.')
-        for p in self.pt_clouds:
-            p.points.loc[:, ['x', 'y', 'z']] -= np.mean(p.xyz, axis=0)
-            if scale:
-                p.points.loc[:, ['x', 'y', 'z']] *= listify(scale, 3)
+    def batch_stats(self,
+                    funcs: Collection[Callable] = None,
+                    ds_type: DatasetType = DatasetType.Train
+                    ):
+        funcs = ifnone(funcs,[torch.mean, torch.std])
+        x = self.one_batch(ds_type=ds_type, denorm=False)[0].cpu()
+        return [func(feature_view(x), 1) for func in funcs]
+
+    def normalize(self,
+                  stats: Collection[Tensor] = None,
+                  do_x: bool = True,
+                  do_y: bool = False
+                  ) -> 'PtCloudDataBunch':
+        if getattr(self, 'norm', False):
+            raise Exception('Can not call normalize twice')
+
+        self.stats = ifnone(stats, self.batch_stats())
+        self.norm, self.denorm = normalize_funcs(*self.stats, do_x=do_x, do_y=do_y)
+        self.add_tfm(self.norm)
         return self
 
 
