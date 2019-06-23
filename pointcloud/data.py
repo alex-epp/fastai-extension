@@ -33,10 +33,11 @@ class MaskedFlattenedLoss():
         target = target.transpose(self.axis,-1).contiguous()
         if self.floatify: target = target.float()
         input = input.view(-1,input.shape[-1]) if self.is_2d else input.view(-1)
+        target = target.view(-1)
         mask = target >= 0
         target = target[mask]
-        input = input[mask, ...]
-        return self.func.__call__(input, target.view(-1), **kwargs)
+        input = input[mask]
+        return self.func.__call__(input, target, **kwargs)
 
 
 def normalize(x: TensorPtCloud, mean: FloatTensor, std: FloatTensor):
