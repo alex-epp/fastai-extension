@@ -16,8 +16,34 @@ ptcloud_extensions = ['.las', '.laz', '.ply']
 TensorPtCloud = Tensor
 
 
+class MaskedFlattenedLoss():
+    "Same as `func`, but 1) flattens input and target and 2) ignores all values where target < 0."
+    def __init__(self, func, *args, axis:int=-1, floatify:bool=False, is_2d:bool=True, **kwargs):
+        self.func,self.axis,self.floatify,self.is_2d = func(*args,**kwargs),axis,floatify,is_2d
+        functools.update_wrapper(self, self.func)
+
+    def __repr__(self): return f"MaskedFlattenedLoss of {self.func}"
+    @property
+    def reduction(self): return self.func.reduction
+    @reduction.setter
+    def reduction(self, v): self.func.reduction = v
+
+    def __call__(self, input:Tensor, target:Tensor, **kwargs)->Rank0Tensor:
+        input = input.transpose(self.axis,-1).contiguous()
+        target = target.transpose(self.axis,-1).contiguous()
+        if self.floatify: target = target.float()
+        input = input.view(-1,input.shape[-1]) if self.is_2d else input.view(-1)
+        mask = target >= 0
+        target = target[mask]
+        input = input[mask, ...]
+        return self.func.__call__(input, target.view(-1), **kwargs)
+
+
 def normalize(x: TensorPtCloud, mean: FloatTensor, std: FloatTensor):
-    return (x - mean[None, None, :]) / std[None, None, :]
+    masked_out = (x == 0).all(dim=-1)
+    normed = (x - mean[None, None, :]) / std[None, None, :]
+    normed[masked_out] = 0
+    return normed
 
 
 def _normalize_batch(b: Tuple[Tensor, Tensor], mean: FloatTensor, std: FloatTensor,
@@ -49,10 +75,6 @@ def normalize_funcs(mean: FloatTensor, std: FloatTensor, do_x: bool, do_y: bool)
             partial(denormalize, mean=mean, std=std, do_x=do_x, do_y=do_y))
 
 
-def feature_view(x: Tensor) -> Tensor:
-    return x.transpose(0, 2).contiguous()[3:, ...].view(x.shape[2]-3, -1)
-
-
 class PtCloudDataBunch(DataBunch):
     "DataBunch suitable for point-cloud processing."
 
@@ -62,8 +84,14 @@ class PtCloudDataBunch(DataBunch):
                     ):
         funcs = ifnone(funcs,[torch.mean, torch.std])
         x = self.one_batch(ds_type=ds_type, denorm=False)[0].cpu()
-        if x.shape[2] <= 3: return None
-        return [func(feature_view(x), 1) for func in funcs]
+
+        n_features = x.shape[2] - 3
+        if n_features <= 0: return None
+
+        masked_out = (x == 0).all(dim=-1)
+        x = x[~masked_out][:, 3:].transpose(0, 1)
+
+        return [func(x, 1) for func in funcs]
 
     def normalize(self,
                   stats: Collection[Tensor] = None,
@@ -177,7 +205,7 @@ class PtCloudSegmentationLabelList(PtCloudList):
         super().__init__(items, **kwargs)
         self.copy_new.extend(['classes', 'label_field'])
         self.classes, self.label_field = classes, label_field
-        self.loss_func = CrossEntropyFlat(axis=-1)
+        self.loss_func = MaskedFlattenedLoss(nn.CrossEntropyLoss, axis=-1)
 
     def open(self, i):
         return PtCloudSegmentItem.from_ptcloud(self.pt_clouds[i],
