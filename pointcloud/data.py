@@ -8,7 +8,7 @@ import torch
 from .pointcloud import *
 import pyntcloud
 
-__all__ = ['PtCloudDataBunch', 'PtCloudSegmentationList']
+__all__ = ['PtCloudDataBunch', 'PtCloudSegmentationList', 'PtCloudUpsampleList']
 
 # TODO: set to all file types loadable with the point-cloud library I choose
 ptcloud_extensions = ['.las', '.laz', '.ply']
@@ -33,10 +33,11 @@ class MaskedFlattenedLoss():
         target = target.transpose(self.axis,-1).contiguous()
         if self.floatify: target = target.float()
         input = input.view(-1,input.shape[-1]) if self.is_2d else input.view(-1)
+        target = target.view(-1)
         mask = target >= 0
         target = target[mask]
-        input = input[mask, ...]
-        return self.func.__call__(input, target.view(-1), **kwargs)
+        input = input[mask]
+        return self.func.__call__(input, target, **kwargs)
 
 
 def normalize(x: TensorPtCloud, mean: FloatTensor, std: FloatTensor):
@@ -219,9 +220,50 @@ class PtCloudSegmentationLabelList(PtCloudList):
 
 
 class PtCloudSegmentationList(PtCloudList):
-    "`ItemList suitable for segmentation tasks."
+    "`ItemList suitable for point cloud segmentation tasks."
     _label_cls = PtCloudSegmentationLabelList
 
     def label_from_field(self, label_field: str = 'classification', **kwargs):
         return self._label_from_list(self.items, pt_clouds=self.pt_clouds,
                                      label_field=label_field, **kwargs)
+
+
+class PtCloudUpsampleProcessor(PreProcessor):
+    "`PreProcessor` that stores the classes for segmentation."
+    def __init__(self, ds: ItemList): self.classes = ds.classes
+    def process(self, ds: ItemList): ds.classes, ds.c = self.classes, len(self.classes)
+
+
+class PtCloudUpsampleLabelList(PtCloudList):
+    "`ItemList` for point-cloud segmentation masks."
+    _processor = None # PtCloudUpsampleProcessor
+
+    def __init__(self,
+                 items: Iterator,
+                 **kwargs
+                 ):
+        super().__init__(items, **kwargs)
+        self.loss_func = MaskedFlattenedLoss(nn.CrossEntropyLoss, axis=-1)
+
+    def open(self, i):
+        return PtCloudSegmentItem.from_ptcloud(self.pt_clouds[i],
+                                               ['x', 'y', 'z'] + self.features)
+
+    def analyze_pred(self, pred:Tensor):
+        return pred.argmax(dim=1)[None]
+
+    def reconstruct(self, t: Tensor):
+        return PtCloudSegmentItem(t)
+
+
+class PtCloudUpsampleList(PtCloudList):
+    "`ItemList suitable for point cloud upsampling tasks."
+    _label_cls = PtCloudUpsampleLabelList
+
+    def label(self, downsample_cellsize=0.2, target_features=None, downsample_agg='intensity', **kwargs):
+        ll = self._label_from_list(self.items,
+                                   pt_clouds=self.pt_clouds,
+                                   features=['x', 'y', 'z'] + listify(target_features),
+                                   **kwargs)
+        self.pt_clouds = [ptcloud_voxel_sample(pts, downsample_cellsize, downsample_agg) for pts in self.pt_clouds]
+        return ll

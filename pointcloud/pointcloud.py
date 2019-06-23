@@ -2,9 +2,9 @@ from fastai.core import *
 from fastai.torch_core import *
 import pyntcloud
 
-__all__ = ['PtCloudItem', 'PtCloudSegmentItem', 'ptcloud_split', 'ptcloud_sample',
-           'ptcloud_voxel_sample', 'PtCloudTransform', 'PtCloudXYZTransform',
-           'PtCloudAffineTransform', 'PtCloudFeaturesTransform',
+__all__ = ['PtCloudItem', 'PtCloudSegmentItem', 'PtCloudUpsampledItem', 'ptcloud_split',
+           'ptcloud_sample', 'ptcloud_voxel_sample', 'PtCloudTransform',
+           'PtCloudXYZTransform', 'PtCloudAffineTransform', 'PtCloudFeaturesTransform',
            'PtCloudIdxTransform', 'PtCloudMaskOutTransform']
 
 class PtCloudItemBase(ItemBase):
@@ -111,6 +111,25 @@ class PtCloudSegmentItem(PtCloudItemBase):
 
     def apply_tfm_mask_out(self, func, *args, **kwargs):
         self.data[func(self.n_points, *args, **kwargs), ...] = -1
+        return self
+
+
+class PtCloudUpsampledItem(PtCloudItemBase):
+    @classmethod
+    def from_ptcloud(cls,
+                     ptcloud: pyntcloud.PyntCloud,
+                     features: Union[str, Collection[str]] = ('x', 'y', 'z')):
+        features = listify(features)
+        pts = ptcloud.points[features]
+        return cls(torch.from_numpy(np.asarray(pts, dtype=np.float32)))
+
+    def reconstruct(self, t: Tensor):
+        return PtCloudSegmentItem(t)
+
+    def apply_tfm_idx(self, func, *args, **kwargs):
+        return self
+
+    def apply_tfm_mask_out(self, func, *args, **kwargs):
         return self
 
 
