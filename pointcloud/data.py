@@ -31,11 +31,14 @@ def _normalize_batch(b: Tuple[Tensor, Tensor], mean: FloatTensor, std: FloatTens
     return x, y
 
 
-def denormalize(x: TensorPtCloud, mean: FloatTensor, std: FloatTensor, do_x: bool = True):
+def denormalize(x: TensorPtCloud, mean: FloatTensor, std: FloatTensor, do_x: bool = True, do_y: bool = True):
+    assert do_y is False
+
     if do_x:
         x = x.cpu().float()
         return torch.cat((x[..., :3],
-                          x[..., 3:] * std[None, None, ...] + mean[None, None, ...]))
+                          x[..., 3:] * std[None, None, ...] + mean[None, None, ...]),
+                         dim=-1)
     else:
         return x.cpu()
 
@@ -47,10 +50,7 @@ def normalize_funcs(mean: FloatTensor, std: FloatTensor, do_x: bool, do_y: bool)
 
 
 def feature_view(x: Tensor) -> Tensor:
-    if x.shape[2] <= 3:
-        return x
-    else:
-        return x.transpose(0, 2).contiguous()[3:, ...].view(x.shape[2]-3, -1)
+    return x.transpose(0, 2).contiguous()[3:, ...].view(x.shape[2]-3, -1)
 
 
 class PtCloudDataBunch(DataBunch):
@@ -62,6 +62,7 @@ class PtCloudDataBunch(DataBunch):
                     ):
         funcs = ifnone(funcs,[torch.mean, torch.std])
         x = self.one_batch(ds_type=ds_type, denorm=False)[0].cpu()
+        if x.shape[2] <= 3: return None
         return [func(feature_view(x), 1) for func in funcs]
 
     def normalize(self,
@@ -73,8 +74,9 @@ class PtCloudDataBunch(DataBunch):
             raise Exception('Can not call normalize twice')
 
         self.stats = ifnone(stats, self.batch_stats())
-        self.norm, self.denorm = normalize_funcs(*self.stats, do_x=do_x, do_y=do_y)
-        self.add_tfm(self.norm)
+        if self.stats is not None:
+            self.norm, self.denorm = normalize_funcs(*self.stats, do_x=do_x, do_y=do_y)
+            self.add_tfm(self.norm)
         return self
 
 
