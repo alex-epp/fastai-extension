@@ -15,11 +15,6 @@ def _sample(n, k, *, seed: RandomSeed):
 sample = PtCloudIdxTransform(_sample, order=0)
 
 
-def _dropout(n, drop_pct: uniform, seed: RandomSeed):
-    return Random(seed).sample(range(n), k=int(n * drop_pct))
-dropout = PtCloudMaskOutTransform(_dropout, order=1)
-
-
 def _jitter_xyz(xyz, magnitude=0.01, clamp=(-0.03, 0.03)):
     return xyz + torch.clamp(torch.rand_like(xyz) * magnitude, *clamp)
 jitter_xyz = PtCloudXYZTransform(_jitter_xyz, order=2)
@@ -47,6 +42,11 @@ def _rotate_z(degrees: uniform):
             [-sin(angle), cos(angle), 0.],
             [ 0.        , 0.        , 1.]]
 rotate_z = PtCloudAffineTransform(_rotate_z, order=4)
+
+
+def _dropout(n, drop_pct: uniform, seed: RandomSeed):
+    return Random(seed).sample(range(n), k=min(int(n * drop_pct), 1))
+dropout = PtCloudMaskOutTransform(_dropout, order=10)
 
 
 def get_transforms(n_sample=1024,
