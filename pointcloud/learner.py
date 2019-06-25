@@ -11,12 +11,12 @@ __all__ = ['pcn_learner']
 
 
 def _default_split(m: nn.Module): return m[1],
-def _pointnet2_split(m: nn.Module): return m[1],
+def _pcn_split(m: nn.Module): return m.encoder, m.decoder
 
 
 _default_meta = {'cut': None, 'split': _default_split}
-_pointnet2_cls_meta = {'cut': -1, 'split': _pointnet2_split}
-_pointnet2_seg_meta = {'cut': -1, 'split': _pointnet2_split}
+_pointnet2_cls_meta = {'cut': -1, 'split': _pcn_split}
+_pointnet2_seg_meta = {'cut': -1, 'split': _pcn_split}
 
 
 model_meta = {

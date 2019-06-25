@@ -1,5 +1,6 @@
 if __name__ == "__main__":
     from pointcloud import *
+    from fastai.vision
 
     data = (PtCloudUpsampleList
             .from_folder('test-data')

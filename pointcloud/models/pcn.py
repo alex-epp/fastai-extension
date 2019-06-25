@@ -8,6 +8,8 @@ __all__ = ['PCNet']
 
 class PCNDecoder(nn.Module):
     def __init__(self, grid_size=4, grid_scale=0.05):
+        super().__init__()
+
         self.grid_size = grid_size
         self.grid_scale = grid_scale
         grid = torch.meshgrid([
@@ -17,8 +19,6 @@ class PCNDecoder(nn.Module):
         self.grid = torch.stack(grid, dim=-1).reshape((-1, 2))  # type: Tensor
 
         self.shared_mlp = SharedMLP([512, 512, 3])
-
-        super().__init__()
 
     def forward(self, xyz: Tensor, features: Tensor):
         assert len(xyz.shape) == len(features.shape) == 3
