@@ -46,7 +46,7 @@ class PCNDecoder(nn.Module):
 
 
 class PCNet(nn.Module):
-    def __init__(self, encoder:nn.Module, n_classes: int):
+    def __init__(self, encoder:nn.Module):
         # encoder has an output either of BxF or BxNxF. For now, assume the latter. The
         # former case I'll worry about later.
 

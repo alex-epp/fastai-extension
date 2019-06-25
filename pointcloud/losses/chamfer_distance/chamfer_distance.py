@@ -9,11 +9,9 @@ __all__ = ['ChamferDistance']
 
 
 src_dir = Path(__file__).parent
-print(src_dir)
 cd = load(name='cd',
           sources=[str(src_dir/'chamfer_distance.cpp'),
                    str(src_dir/'chamfer_distance.cu')])
-print(cd)
 
 
 class ChamferDistanceFunction(torch.autograd.Function):

@@ -44,8 +44,8 @@ def pcn_learner(data: DataBunch, arch: Callable, pretrained: bool = True,
                 cut:Union[int, Callable] = None, split_on: SplitFuncOrIdxList = None,
                 **kwargs: Any) -> Learner:
     meta = pointnet_config(arch)
-    body = create_body(arch, pretrained=False, cut=cut)
-    model = to_device(models.PCNet(body, n_classes=data.c), data.device)
+    body = create_body(arch, pretrained=pretrained, cut=cut)
+    model = to_device(models.PCNet(body), data.device)
     learn = Learner(data, model, **kwargs)
     learn.split(ifnone(split_on, meta['split']))
     if pretrained: learn.freeze()
