@@ -1,16 +1,15 @@
 if __name__ == "__main__":
     from pointcloud import *
 
-    data = (PtCloudSegmentationList
+    data = (PtCloudUpsampleList
             .from_folder('test-data')
-            .voxel_sample(0.2, agg='x')
-            .chunkify(1)
+            .chunkify(10)
             .split_by_rand_pct()
-            .label_from_field('x', classes=['None', 'Marking'])
+            .label(downsample_cellsize=0.2, downsample_agg='x')
             .transform(get_transforms(), tfm_y=True)
             .databunch(bs=2)
             .normalize()
             )
 
-    print(data)
-    print(data.one_batch())
+    learn = pcn_learner(data, pointnet2_msg_seg)
+    print(learn)
