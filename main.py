@@ -31,18 +31,19 @@ if __name__ == "__main__":
     setup_thread_excepthook()
 
     from pointcloud import *
+    from fastai.vision
 
-    data = (PtCloudSegmentationList
+    data = (PtCloudUpsampleList
             .from_folder('test-data')
-            .voxel_sample(0.2, agg='x')
-            .chunkify(1)
+            .chunkify(10)
             .split_by_rand_pct()
-            .label_from_field('x', classes=['None', 'Marking'])
+            .label(downsample_cellsize=0.2, downsample_agg='x')
             .transform(get_transforms(), tfm_y=True)
-            .databunch(bs=1)
+            .databunch(bs=2)
             .normalize()
             )
 
+<<<<<<< HEAD
     print(data)
 
     labellist = splitlist.label_from_fields('x', classes=['None', 'Marking'])
@@ -50,3 +51,7 @@ if __name__ == "__main__":
 
     databunch = labellist.databunch(bs=1).normalize()
     print(databunch)
+=======
+    learn = pcn_learner(data, pointnet2_msg_seg)
+    print(learn)
+>>>>>>> b74d0e3d549047cadb8cd72d61cbe2a43b479b53

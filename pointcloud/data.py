@@ -6,9 +6,10 @@ from fastai.torch_core import *
 import torch
 
 from .pointcloud import *
+from .losses import *
 import pyntcloud
 
-__all__ = ['PtCloudDataBunch', 'PtCloudSegmentationList']
+__all__ = ['PtCloudDataBunch', 'PtCloudSegmentationList', 'PtCloudUpsampleList']
 
 # TODO: set to all file types loadable with the point-cloud library I choose
 ptcloud_extensions = ['.las', '.laz', '.ply']
@@ -17,7 +18,10 @@ TensorPtCloud = Tensor
 
 
 def normalize(x: TensorPtCloud, mean: FloatTensor, std: FloatTensor):
-    return (x - mean[None, None, :]) / std[None, None, :]
+    masked_out = (x == 0).all(dim=-1)
+    normed = (x - mean[None, None, :]) / std[None, None, :]
+    normed[masked_out] = 0
+    return normed
 
 
 def _normalize_batch(b: Tuple[Tensor, Tensor], mean: FloatTensor, std: FloatTensor,
@@ -31,11 +35,14 @@ def _normalize_batch(b: Tuple[Tensor, Tensor], mean: FloatTensor, std: FloatTens
     return x, y
 
 
-def denormalize(x: TensorPtCloud, mean: FloatTensor, std: FloatTensor, do_x: bool = True):
+def denormalize(x: TensorPtCloud, mean: FloatTensor, std: FloatTensor, do_x: bool = True, do_y: bool = True):
+    assert do_y is False
+
     if do_x:
         x = x.cpu().float()
         return torch.cat((x[..., :3],
-                          x[..., 3:] * std[None, None, ...] + mean[None, None, ...]))
+                          x[..., 3:] * std[None, None, ...] + mean[None, None, ...]),
+                         dim=-1)
     else:
         return x.cpu()
 
@@ -44,13 +51,6 @@ def normalize_funcs(mean: FloatTensor, std: FloatTensor, do_x: bool, do_y: bool)
     mean, std = tensor(mean), tensor(std)
     return (partial(_normalize_batch, mean=mean, std=std, do_x=do_x, do_y=do_y),
             partial(denormalize, mean=mean, std=std, do_x=do_x, do_y=do_y))
-
-
-def feature_view(x: Tensor) -> Tensor:
-    if x.shape[2] <= 3:
-        return x
-    else:
-        return x.transpose(0, 2).contiguous()[3:, ...].view(x.shape[2]-3, -1)
 
 
 class PtCloudDataBunch(DataBunch):
@@ -62,7 +62,14 @@ class PtCloudDataBunch(DataBunch):
                     ):
         funcs = ifnone(funcs,[torch.mean, torch.std])
         x = self.one_batch(ds_type=ds_type, denorm=False)[0].cpu()
-        return [func(feature_view(x), 1) for func in funcs]
+
+        n_features = x.shape[2] - 3
+        if n_features <= 0: return None
+
+        masked_out = (x == 0).all(dim=-1)
+        x = x[~masked_out][:, 3:].transpose(0, 1)
+
+        return [func(x, 1) for func in funcs]
 
     def normalize(self,
                   stats: Collection[Tensor] = None,
@@ -73,8 +80,9 @@ class PtCloudDataBunch(DataBunch):
             raise Exception('Can not call normalize twice')
 
         self.stats = ifnone(stats, self.batch_stats())
-        self.norm, self.denorm = normalize_funcs(*self.stats, do_x=do_x, do_y=do_y)
-        self.add_tfm(self.norm)
+        if self.stats is not None:
+            self.norm, self.denorm = normalize_funcs(*self.stats, do_x=do_x, do_y=do_y)
+            self.add_tfm(self.norm)
         return self
 
 
@@ -180,7 +188,7 @@ class PtCloudSegmentationLabelList(PtCloudList):
         super().__init__(items, **kwargs)
         self.copy_new.extend(['classes', 'label_field'])
         self.classes, self.label_field = classes, label_field
-        self.loss_func = CrossEntropyFlat(axis=-1)
+        self.loss_func = MaskedFlattenedLoss(nn.CrossEntropyLoss, axis=-1)
 
     def open(self, i):
         return PtCloudSegmentItem.from_ptcloud(self.pt_clouds[i],
@@ -194,9 +202,50 @@ class PtCloudSegmentationLabelList(PtCloudList):
 
 
 class PtCloudSegmentationList(PtCloudList):
-    "`ItemList suitable for segmentation tasks."
+    "`ItemList suitable for point cloud segmentation tasks."
     _label_cls = PtCloudSegmentationLabelList
 
     def label_from_field(self, label_field: str = 'classification', **kwargs):
         return self._label_from_list(self.items, pt_clouds=self.pt_clouds,
                                      label_field=label_field, **kwargs)
+
+
+class PtCloudUpsampleProcessor(PreProcessor):
+    "`PreProcessor` that stores the classes for segmentation."
+    def __init__(self, ds: ItemList): self.classes = ds.classes
+    def process(self, ds: ItemList): ds.classes, ds.c = self.classes, len(self.classes)
+
+
+class PtCloudUpsampleLabelList(PtCloudList):
+    "`ItemList` for point-cloud segmentation masks."
+    _processor = None # PtCloudUpsampleProcessor
+
+    def __init__(self,
+                 items: Iterator,
+                 **kwargs
+                 ):
+        super().__init__(items, **kwargs)
+        self.loss_func = ChamferDistance()
+
+    def open(self, i):
+        return PtCloudSegmentItem.from_ptcloud(self.pt_clouds[i],
+                                               ['x', 'y', 'z'] + self.features)
+
+    def analyze_pred(self, pred:Tensor):
+        return pred.argmax(dim=1)[None]
+
+    def reconstruct(self, t: Tensor):
+        return PtCloudSegmentItem(t)
+
+
+class PtCloudUpsampleList(PtCloudList):
+    "`ItemList suitable for point cloud upsampling tasks."
+    _label_cls = PtCloudUpsampleLabelList
+
+    def label(self, downsample_cellsize=0.2, target_features=None, downsample_agg='intensity', **kwargs):
+        ll = self._label_from_list(self.items,
+                                   pt_clouds=self.pt_clouds,
+                                   features=['x', 'y', 'z'] + listify(target_features),
+                                   **kwargs)
+        self.pt_clouds = [ptcloud_voxel_sample(pts, downsample_cellsize, downsample_agg) for pts in self.pt_clouds]
+        return ll

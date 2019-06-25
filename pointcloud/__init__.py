@@ -5,3 +5,4 @@ from .data import *
 from .pointcloud import *
 from .learner import *
 from .transform import *
+from .losses import *
