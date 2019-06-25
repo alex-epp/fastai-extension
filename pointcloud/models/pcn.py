@@ -47,13 +47,13 @@ class PCNDecoder(nn.Module):
 
 class PCNet(nn.Module):
     def __init__(self, encoder:nn.Module):
+        super().__init__()
+
         # encoder has an output either of BxF or BxNxF. For now, assume the latter. The
         # former case I'll worry about later.
 
         self.encoder = encoder
         self.decoder = PCNDecoder(grid_size=4, grid_scale=0.04)
-
-        super().__init__()
 
     def forward(self, x):
         x = self.encoder(x)
