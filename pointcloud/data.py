@@ -4,6 +4,8 @@ from fastai.data_block import *
 from fastai.layers import *
 from fastai.torch_core import *
 import torch
+from tqdm import tqdm
+from concurrent.futures import ProcessPoolExecutor
 
 from .pointcloud import *
 from .losses import *
@@ -135,11 +137,18 @@ class PtCloudList(ItemList):
         pt_clouds = list(filter(filter_, self.pt_clouds))
         return self.new(np.asarray(range_of(pt_clouds)), pt_clouds=pt_clouds)
 
-    def chunkify(self, chunk_size: Union[int, Iterable] = 1, *, from_item_lists=False):
+    def sample(self, k, *, from_item_lists=False):
+        if from_item_lists:
+            raise Exception('Can\'t use sample after splitting data.')
+
+        pt_clouds = [ptcloud_sample(p, k) for p in self.pt_clouds]
+        return self.new(self.items, pt_clouds=pt_clouds)
+
+    def chunkify(self, chunk_size: Union[int, Iterable] = 1, *, verbose=False, from_item_lists=False):
         if from_item_lists:
             raise Exception('Can\'t use chunkify after splitting data.')
         pts = []
-        for p in self.pt_clouds:
+        for p in tqdm(self.pt_clouds, disable=not verbose):
             pts.extend(ptcloud_split(p, chunk_size))
 
         return self.new(range_of(pts), pt_clouds=pts)

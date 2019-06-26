@@ -151,8 +151,8 @@ def ptcloud_norm_xyz(pts: pyntcloud.PyntCloud, scale: float = None):
 
     df = pts.points.assign(
         x=(pts.points.x - pts.points.x.mean()) * scale[0],
-        y=(pts.points.x - pts.points.x.mean()) * scale[1],
-        z=(pts.points.x - pts.points.x.mean()) * scale[2],
+        y=(pts.points.y - pts.points.y.mean()) * scale[1],
+        z=(pts.points.z - pts.points.z.mean()) * scale[2],
     )
     return pyntcloud.PyntCloud(df)
 
@@ -188,7 +188,7 @@ def ptcloud_voxel_sample(pts: pyntcloud.PyntCloud, voxel_size: Union[Iterable, f
     )  # type: pd.DataFrame
     df.sort_values(agg, inplace=True)
     df.drop_duplicates(['group_x', 'group_y', 'group_z'],
-                       keep='last' if keep_max else 'first')
+                       keep='last' if keep_max else 'first', inplace=True)
     return pyntcloud.PyntCloud(df.reset_index(drop=True))
 
 
