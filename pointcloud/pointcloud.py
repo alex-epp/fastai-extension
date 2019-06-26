@@ -3,9 +3,10 @@ from fastai.torch_core import *
 import pyntcloud
 
 __all__ = ['PtCloudItem', 'PtCloudSegmentItem', 'PtCloudUpsampledItem', 'ptcloud_split',
-           'ptcloud_sample', 'ptcloud_voxel_sample', 'PtCloudTransform',
+           'ptcloud_sample', 'ptcloud_voxel_sample', 'ptcloud_norm_xyz', 'PtCloudTransform',
            'PtCloudXYZTransform', 'PtCloudAffineTransform', 'PtCloudFeaturesTransform',
-           'PtCloudIdxTransform', 'PtCloudMaskOutTransform']
+           'PtCloudIdxTransform', 'PtCloudMaskOutTransform', 'PtCloudIdxTransformX', 'PtCloudIdxTransformY']
+
 
 class PtCloudItemBase(ItemBase):
     def __repr__(self): return f'{self.__class__.__name__} {tuple(self.data.shape)}'
@@ -76,9 +77,8 @@ class PtCloudItemBase(ItemBase):
         self.data = self.data[func(self.n_points, *args, **kwargs), ...]
         return self
 
-    def apply_tfm_mask_out(self, func, *args, **kwargs):
-        self.data[func(self.n_points, *args, **kwargs), ...] = 0
-        return self
+    apply_tfm_idx_x = apply_tfm_idx
+    apply_tfm_idx_y = apply_tfm_idx
 
 
 class PtCloudItem(PtCloudItemBase):
@@ -90,6 +90,13 @@ class PtCloudItem(PtCloudItemBase):
         features = listify(features)
         pts = ptcloud.points[features]
         return cls(torch.from_numpy(np.asarray(pts, dtype=np.float32)))
+
+    def apply_tfm_mask_out(self, func, *args, **kwargs):
+        self.data[func(self.n_points, *args, **kwargs), ...] = 0
+        return self
+
+    def apply_tfm_idx_y(self, func, *args, **kwargs):
+        return self
 
 
 class PtCloudSegmentItem(PtCloudItemBase):
@@ -113,6 +120,9 @@ class PtCloudSegmentItem(PtCloudItemBase):
         self.data[func(self.n_points, *args, **kwargs), ...] = -1
         return self
 
+    def apply_tfm_idx_x(self, func, *args, **kwargs):
+        return self
+
 
 class PtCloudUpsampledItem(PtCloudItemBase):
     @classmethod
@@ -131,6 +141,20 @@ class PtCloudUpsampledItem(PtCloudItemBase):
 
     def apply_tfm_mask_out(self, func, *args, **kwargs):
         return self
+
+    def apply_tfm_idx_x(self, func, *args, **kwargs):
+        return self
+
+
+def ptcloud_norm_xyz(pts: pyntcloud.PyntCloud, scale: float = None):
+    scale = listify(scale or 1, 3)
+
+    df = pts.points.assign(
+        x=(pts.points.x - pts.points.x.mean()) * scale[0],
+        y=(pts.points.x - pts.points.x.mean()) * scale[1],
+        z=(pts.points.x - pts.points.x.mean()) * scale[2],
+    )
+    return pyntcloud.PyntCloud(df)
 
 
 def ptcloud_split(pts: pyntcloud.PyntCloud, cell_size: Union[float, Iterable]
@@ -273,3 +297,11 @@ class PtCloudIdxTransform(PtCloudTransform):
 
 class PtCloudMaskOutTransform(PtCloudTransform):
     _wrap = 'apply_tfm_mask_out'
+
+
+class PtCloudIdxTransformX(PtCloudTransform):
+    _wrap = 'apply_tfm_idx_x'
+
+
+class PtCloudIdxTransformY(PtCloudTransform):
+    _wrap = 'apply_tfm_idx_y'

@@ -131,9 +131,9 @@ class PtCloudList(ItemList):
     def filter(self, filter_, *, from_item_lists=False):
         if from_item_lists:
             raise Exception('Can\'t use filter after splitting data.')
-        self.pt_clouds = list(filter(filter_, self.pt_clouds))
-        self.items = np.asarray(range_of(self.pt_clouds))
-        return self
+
+        pt_clouds = list(filter(filter_, self.pt_clouds))
+        return self.new(np.asarray(range_of(pt_clouds)), pt_clouds=pt_clouds)
 
     def chunkify(self, chunk_size: Union[int, Iterable] = 1, *, from_item_lists=False):
         if from_item_lists:
@@ -142,26 +142,21 @@ class PtCloudList(ItemList):
         for p in self.pt_clouds:
             pts.extend(ptcloud_split(p, chunk_size))
 
-        self.pt_clouds = pts
-        self.items = np.asarray(range_of(self.pt_clouds))
-        return self
+        return self.new(range_of(pts), pt_clouds=pts)
 
     def voxel_sample(self, voxel_size: Union[float, Iterable] = 0.1,
                      agg='intensity', *, from_item_lists=False):
         if from_item_lists:
             raise Exception('Can\'t use voxel_sample after splitting data.')
-        self.pt_clouds = [ptcloud_voxel_sample(p, voxel_size, agg) for p in self.pt_clouds]
-        self.items = np.asarray(range_of(self.pt_clouds))
-        return self
+
+        pt_clouds = [ptcloud_voxel_sample(p, voxel_size, agg) for p in self.pt_clouds]
+        return self.new(self.items, pt_clouds=pt_clouds)
 
     def norm_xyz(self, scale=None, *, from_item_lists=False):
         if from_item_lists:
             raise Exception('Can\'t use normalize after splitting data.')
-        for p in self.pt_clouds:
-            p.points.loc[:, ['x', 'y', 'z']] -= np.mean(p.xyz, axis=0)
-            if scale:
-                p.points.loc[:, ['x', 'y', 'z']] *= listify(scale, 3)
-        return self
+        pt_clouds = [ptcloud_norm_xyz(p, scale=scale) for p in self.pt_clouds]
+        return self.new(self.items, pt_clouds=pt_clouds)
 
 
 class PtCloudSegmentationProcessor(PreProcessor):
@@ -223,8 +218,7 @@ class PtCloudUpsampleLabelList(PtCloudList):
         self.loss_func = ChamferDistance()
 
     def open(self, i):
-        return PtCloudSegmentItem.from_ptcloud(self.pt_clouds[i],
-                                               ['x', 'y', 'z'] + self.features)
+        return PtCloudUpsampledItem.from_ptcloud(self.pt_clouds[i], self.features)
 
     def analyze_pred(self, pred:Tensor):
         return pred.argmax(dim=1)[None]

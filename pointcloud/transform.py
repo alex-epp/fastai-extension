@@ -4,7 +4,7 @@ from random import Random
 
 from .pointcloud import *
 
-__all__ = ['sample', 'dropout', 'jitter_xyz', 'rotate_x', 'rotate_y', 'rotate_z',
+__all__ = ['sample', 'dropout', 'jitter_xyz', 'rotate_x', 'rotate_y', 'rotate_z', 'sample_x', 'sample_y',
            'get_transforms']
 
 RandomSeed = partial(uniform_int, 0, 100000)
@@ -13,6 +13,8 @@ RandomSeed = partial(uniform_int, 0, 100000)
 def _sample(n, k, *, seed: RandomSeed):
     return Random(seed).choices(range(n), k=k)
 sample = PtCloudIdxTransform(_sample, order=0)
+sample_x = PtCloudIdxTransformX(_sample, order=1)
+sample_y = PtCloudIdxTransformY(_sample, order=1)
 
 
 def _jitter_xyz(xyz, magnitude=0.01, clamp=(-0.03, 0.03)):
