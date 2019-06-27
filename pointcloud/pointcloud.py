@@ -87,8 +87,13 @@ class PtCloudItem(PtCloudItemBase):
     def from_ptcloud(cls,
                      ptcloud: pyntcloud.PyntCloud,
                      features: Union[str, Collection[str]] = ('x', 'y', 'z')):
-        features = listify(features)
-        pts = ptcloud.points[features]
+        return cls.from_df(ptcloud.points, features=features)
+
+    @classmethod
+    def from_df(cls,
+                df: pd.DataFrame,
+                features: Union[str, Collection[str]] = ('x', 'y', 'z')):
+        pts = df.loc[:, listify(features)]
         return cls(torch.from_numpy(np.asarray(pts, dtype=np.float32)))
 
     def apply_tfm_mask_out(self, func, *args, **kwargs):
@@ -100,6 +105,19 @@ class PtCloudItem(PtCloudItemBase):
 
 
 class PtCloudSegmentItem(PtCloudItemBase):
+    @classmethod
+    def from_ptcloud(cls,
+                     ptcloud: pyntcloud.PyntCloud,
+                     label_field: str = 'classification'):
+        return cls.from_df(ptcloud.points, label_field=label_field)
+
+    @classmethod
+    def from_df(cls,
+                df: pd.DataFrame,
+                label_field: str = 'classification'):
+        labels = df.loc[:, label_field]
+        return cls(torch.from_numpy(labels.to_numpy()).long())
+
     @classmethod
     def from_ptcloud(cls,
                      ptcloud: pyntcloud.PyntCloud,
@@ -129,8 +147,13 @@ class PtCloudUpsampledItem(PtCloudItemBase):
     def from_ptcloud(cls,
                      ptcloud: pyntcloud.PyntCloud,
                      features: Union[str, Collection[str]] = ('x', 'y', 'z')):
-        features = listify(features)
-        pts = ptcloud.points[features]
+        return cls.from_df(ptcloud.points, features=features)
+
+    @classmethod
+    def from_df(cls,
+                df: pd.DataFrame,
+                features: Union[str, Collection[str]] = ('x', 'y', 'z')):
+        pts = df.loc[:, listify(features)]
         return cls(torch.from_numpy(np.asarray(pts, dtype=np.float32)))
 
     def reconstruct(self, t: Tensor):
