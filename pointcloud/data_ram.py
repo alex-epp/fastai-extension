@@ -1,20 +1,20 @@
 from fastai.basic_data import *
-from fastai.data_block import *
 from fastai.core import *
+from fastai.data_block import *
+from fastai.layers import *
 from fastai.torch_core import *
+import torch
+from tqdm import tqdm
+from concurrent.futures import ProcessPoolExecutor
 
 from .pointcloud import *
 from .losses import *
+import pyntcloud
 
-import pandas as pd
-from pyntcloud import PyntCloud
-import pyntcloud.io
+__all__ = ['PtCloudDataBunch', 'PtCloudSegmentationList', 'PtCloudUpsampleList']
 
-__all__ = ['PtCloudDataBunch', 'PtCloudList', 'PtCloudSegmentationList']
-
-
-# ptcloud_extensions = list(pyntcloud.io.FROM.keys())
-ptcloud_extensions = '.pickle'
+# TODO: set to all file types loadable with the point-cloud library I choose
+ptcloud_extensions = ['.las', '.laz', '.ply']
 
 TensorPtCloud = Tensor
 
@@ -56,7 +56,7 @@ def normalize_funcs(mean: FloatTensor, std: FloatTensor, do_x: bool, do_y: bool)
 
 
 class PtCloudDataBunch(DataBunch):
-    "DataBunch suitable for point-cloud processing"
+    "DataBunch suitable for point-cloud processing."
 
     def batch_stats(self,
                     funcs: Collection[Callable] = None,
@@ -89,21 +89,28 @@ class PtCloudDataBunch(DataBunch):
 
 
 class PtCloudList(ItemList):
-    "ItemList suitable for pointcloud processing."
+    "ItemList suitable for computer vision."
     _bunch = PtCloudDataBunch
 
     def __init__(self, items: Iterator,
                  *args,
+                 pt_clouds=None,
                  features=None,
                  **kwargs):
+        if pt_clouds is None:
+            pt_clouds = [pyntcloud.PyntCloud.from_file(str(f)) for f in items]
+            items = range_of(pt_clouds)
+
         super().__init__(items, *args, **kwargs)
 
         self.features = listify(features)
-        self.copy_new.extend(['features'])
+        self.pt_clouds = pt_clouds
+        self.copy_new.extend(['features', 'pt_clouds'])
         # TODO: ImageList sets 'self.c' here. Why?
 
-    def open(self, fn):
-        return PtCloudItem.from_df(pd.read_pickle(fn), ['x', 'y', 'z'] + self.features)
+    def open(self, i):
+        return PtCloudItem.from_ptcloud(self.pt_clouds[i],
+                                        ['x', 'y', 'z'] + self.features)
 
     def get(self, i):
         i = super().get(i)
@@ -122,6 +129,43 @@ class PtCloudList(ItemList):
         return PtCloudItem(t.float())
 
     # TODO: show
+
+    def filter(self, filter_, *, from_item_lists=False):
+        if from_item_lists:
+            raise Exception('Can\'t use filter after splitting data.')
+
+        pt_clouds = list(filter(filter_, self.pt_clouds))
+        return self.new(np.asarray(range_of(pt_clouds)), pt_clouds=pt_clouds)
+
+    def sample(self, k, *, from_item_lists=False):
+        if from_item_lists:
+            raise Exception('Can\'t use sample after splitting data.')
+
+        pt_clouds = [ptcloud_sample(p, k) for p in self.pt_clouds]
+        return self.new(self.items, pt_clouds=pt_clouds)
+
+    def chunkify(self, chunk_size: Union[int, Iterable] = 1, *, verbose=False, from_item_lists=False):
+        if from_item_lists:
+            raise Exception('Can\'t use chunkify after splitting data.')
+        pts = []
+        for p in tqdm(self.pt_clouds, disable=not verbose):
+            pts.extend(ptcloud_split(p, chunk_size))
+
+        return self.new(range_of(pts), pt_clouds=pts)
+
+    def voxel_sample(self, voxel_size: Union[float, Iterable] = 0.1,
+                     agg='intensity', *, from_item_lists=False):
+        if from_item_lists:
+            raise Exception('Can\'t use voxel_sample after splitting data.')
+
+        pt_clouds = [ptcloud_voxel_sample(p, voxel_size, agg) for p in self.pt_clouds]
+        return self.new(self.items, pt_clouds=pt_clouds)
+
+    def norm_xyz(self, scale=None, *, from_item_lists=False):
+        if from_item_lists:
+            raise Exception('Can\'t use normalize after splitting data.')
+        pt_clouds = [ptcloud_norm_xyz(p, scale=scale) for p in self.pt_clouds]
+        return self.new(self.items, pt_clouds=pt_clouds)
 
 
 class PtCloudSegmentationProcessor(PreProcessor):
@@ -145,8 +189,9 @@ class PtCloudSegmentationLabelList(PtCloudList):
         self.classes, self.label_field = classes, label_field
         self.loss_func = MaskedFlattenedLoss(nn.CrossEntropyLoss, axis=-1)
 
-    def open(self, fn):
-        return PtCloudSegmentItem.from_df(pd.read_pickle(fn), self.label_field)
+    def open(self, i):
+        return PtCloudSegmentItem.from_ptcloud(self.pt_clouds[i],
+                                               self.label_field)
 
     def analyze_pred(self, pred:Tensor):
         return pred.argmax(dim=1)[None]
@@ -160,17 +205,18 @@ class PtCloudSegmentationList(PtCloudList):
     _label_cls = PtCloudSegmentationLabelList
 
     def label_from_field(self, label_field: str = 'classification', **kwargs):
-        return self._label_from_list(self.items, label_field=label_field, **kwargs)
+        return self._label_from_list(self.items, pt_clouds=self.pt_clouds,
+                                     label_field=label_field, **kwargs)
 
 
 class PtCloudUpsampleProcessor(PreProcessor):
-    "`PreProcessor` that stores the classes for upsampling."
+    "`PreProcessor` that stores the classes for segmentation."
     def __init__(self, ds: ItemList): self.classes = ds.classes
     def process(self, ds: ItemList): ds.classes, ds.c = self.classes, len(self.classes)
 
 
 class PtCloudUpsampleLabelList(PtCloudList):
-    "`ItemList` for point-cloud upsampling masks."
+    "`ItemList` for point-cloud segmentation masks."
     _processor = None # PtCloudUpsampleProcessor
 
     def __init__(self,
@@ -180,16 +226,24 @@ class PtCloudUpsampleLabelList(PtCloudList):
         super().__init__(items, **kwargs)
         self.loss_func = ChamferDistance()
 
-    def open(self, fn):
-        return PtCloudUpsampledItem.from_df(pd.read_pickle(fn), self.features)
+    def open(self, i):
+        return PtCloudUpsampledItem.from_ptcloud(self.pt_clouds[i], self.features)
 
     def analyze_pred(self, pred:Tensor):
         return pred.argmax(dim=1)[None]
 
     def reconstruct(self, t: Tensor):
-        return PtCloudUpsampledItem(t)
+        return PtCloudSegmentItem(t)
 
 
 class PtCloudUpsampleList(PtCloudList):
     "`ItemList suitable for point cloud upsampling tasks."
     _label_cls = PtCloudUpsampleLabelList
+
+    def label(self, downsample_cellsize=0.2, target_features=None, downsample_agg='intensity', **kwargs):
+        ll = self._label_from_list(self.items,
+                                   pt_clouds=self.pt_clouds,
+                                   features=['x', 'y', 'z'] + listify(target_features),
+                                   **kwargs)
+        self.pt_clouds = [ptcloud_voxel_sample(pts, downsample_cellsize, downsample_agg) for pts in self.pt_clouds]
+        return ll
