@@ -95,15 +95,31 @@ class PtCloudList(ItemList):
     def __init__(self, items: Iterator,
                  *args,
                  features=None,
+                 open_func=pd.read_pickle,
+                 open_kwargs=None,
                  **kwargs):
         super().__init__(items, *args, **kwargs)
 
+        self.open_func = open_func
+        self.open_kwargs = open_kwargs or {}
         self.features = listify(features)
-        self.copy_new.extend(['features'])
+        self.copy_new.extend(['features', 'open_func', 'open_kwargs'])
         # TODO: ImageList sets 'self.c' here. Why?
 
-    def open(self, fn):
-        return PtCloudItem.from_df(pd.read_pickle(fn), ['x', 'y', 'z'] + self.features)
+    def open(self, fn, ptcloud_class=PtCloudItem, dtype='float'):
+        item = self.open_func(fn, **self.open_kwargs)
+        if isinstance(item, ptcloud_class):
+            return item
+        elif isinstance(item, Tensor):
+            return ptcloud_class(item.cuda().type(dtype))
+        elif isinstance(item, pd.DataFrame):
+            return ptcloud_class(torch.from_numpy(
+                item.loc[:, ['x', 'y', 'z'] + self.features].to_numpy()).cuda().type(dtype))
+        elif isinstance(item, np.ndarray):
+            return ptcloud_class(torch.from_numpy(
+                item[:, [0, 1, 2] + self.features].cuda().type(dtype)))
+        else:
+            raise ValueError
 
     def get(self, i):
         i = super().get(i)
@@ -145,8 +161,8 @@ class PtCloudSegmentationLabelList(PtCloudList):
         self.classes, self.label_field = classes, label_field
         self.loss_func = MaskedFlattenedLoss(nn.CrossEntropyLoss, axis=-1)
 
-    def open(self, fn):
-        return PtCloudSegmentItem.from_df(pd.read_pickle(fn), self.label_field)
+    def open(self, fn, ptcloud_class=PtCloudSegmentItem, dtype='long'):
+        return super().open(fn, ptcloud_class=ptcloud_class, dtype=dtype)
 
     def analyze_pred(self, pred:Tensor):
         return pred.argmax(dim=1)[None]
@@ -180,8 +196,8 @@ class PtCloudUpsampleLabelList(PtCloudList):
         super().__init__(items, **kwargs)
         self.loss_func = ChamferDistance()
 
-    def open(self, fn):
-        return PtCloudUpsampledItem.from_df(pd.read_pickle(fn), self.features)
+    def open(self, fn, ptcloud_class=PtCloudUpsampledItem, dtype='float'):
+        return super().open(fn, ptcloud_class=ptcloud_class, dtype=dtype)
 
     def analyze_pred(self, pred:Tensor):
         return pred.argmax(dim=1)[None]
