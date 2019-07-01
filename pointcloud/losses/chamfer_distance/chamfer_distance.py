@@ -9,9 +9,14 @@ __all__ = ['ChamferDistance']
 
 
 src_dir = Path(__file__).parent
-cd = load(name='cd',
-          sources=[str(src_dir/'chamfer_distance.cpp'),
-                   str(src_dir/'chamfer_distance.cu')])
+try:
+    cd = load(name='cd',
+              sources=[str(src_dir/'chamfer_distance.cpp'),
+                       str(src_dir/'chamfer_distance.cu')])
+except Exception as e:
+    import warnings
+    warnings.warn(f'Can\'t build chamfer_distance: {e}')
+    cd = None
 
 
 class ChamferDistanceFunction(torch.autograd.Function):
