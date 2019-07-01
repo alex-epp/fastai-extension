@@ -106,7 +106,7 @@ class PtCloudList(ItemList):
         self.copy_new.extend(['features', 'open_func', 'open_kwargs'])
         # TODO: ImageList sets 'self.c' here. Why?
 
-    def open(self, fn, ptcloud_class=PtCloudItem, dtype='float'):
+    def open(self, fn, ptcloud_class=PtCloudItem, dtype=torch.float32):
         item = self.open_func(fn, **self.open_kwargs)
 
         if isinstance(item, pd.DataFrame) or isinstance(item, pd.Series):
@@ -163,7 +163,7 @@ class PtCloudSegmentationLabelList(PtCloudList):
         self.classes, self.label_field = classes, label_field
         self.loss_func = MaskedFlattenedLoss(nn.CrossEntropyLoss, axis=-1)
 
-    def open(self, fn, ptcloud_class=PtCloudSegmentItem, dtype='long'):
+    def open(self, fn, ptcloud_class=PtCloudSegmentItem, dtype=torch.long):
         return super().open(fn, ptcloud_class=ptcloud_class, dtype=dtype)
 
     def analyze_pred(self, pred:Tensor):
@@ -198,7 +198,7 @@ class PtCloudUpsampleLabelList(PtCloudList):
         super().__init__(items, **kwargs)
         self.loss_func = ChamferDistance()
 
-    def open(self, fn, ptcloud_class=PtCloudUpsampledItem, dtype='float'):
+    def open(self, fn, ptcloud_class=PtCloudUpsampledItem, dtype=torch.float32):
         return super().open(fn, ptcloud_class=ptcloud_class, dtype=dtype)
 
     def analyze_pred(self, pred:Tensor):
