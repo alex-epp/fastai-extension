@@ -116,7 +116,7 @@ class PtCloudList(ItemList):
             item = torch.from_numpy(item)
 
         if isinstance(item, Tensor):
-            item = ptcloud_class(item.cuda().type(dtype))
+            item = ptcloud_class(item.type(dtype))
 
         if isinstance(item, ptcloud_class):
             return item
